@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://riskportal.ai/schema/graph",
+  "title": "RiskPortal Graph Schema",
+  "type": "object",
+  "required": ["schemaVersion", "nodes", "edges"],
+  "properties": {
+    "schemaVersion": { "type": "string", "const": "1.0" },
+    "metadata": { "type": "object" },
+    "nodes": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/node" }
+    },
+    "edges": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/edge" }
+    }
+  },
+  "$defs": {
+    "distribution": {
+      "type": "object",
+      "required": ["type", "parameters"]
+    },
+    "node": {
+      "type": "object",
+      "required": ["id", "type"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "type": { "enum": ["parameter", "expression", "result"] },
+        "distribution": { "$ref": "#/$defs/distribution" },
+        "formula": { "type": "string" },
+        "is_result": { "type": "boolean" }
+      }
+    },
+    "edge": {
+      "type": "object",
+      "required": ["id", "target", "probability", "impact_type", "distribution"],
+      "properties": {
+        "id": { "type": "string" },
+        "target": { "type": "string" },
+        "probability": { "type": "number", "minimum": 0, "maximum": 1 },
+        "impact_type": { "enum": ["absolute", "percentage"] },
+        "priority": { "type": "integer", "minimum": 0 },
+        "distribution": { "$ref": "#/$defs/distribution" }
+      }
+    }
+  }
+}
