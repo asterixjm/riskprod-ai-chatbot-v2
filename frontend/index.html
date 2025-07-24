@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>RiskSpace AI – Graph Monte‑Carlo Prototype</title>
+  <title>RiskSpace AI – Graph Monte‑Carlo Prototype</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <!-- ╔════════════ Navigation ════════════╗ -->
   <header class="main-header">
     <div class="nav-container">
-      <span class="nav-logo-text">Risk Portal</span>
+      <span class="nav-logo-text">Risk Portal</span>
       <nav class="nav-menu">
         <button class="nav-link" onclick="resetConversation()">New Simulation</button>
       </nav>
@@ -20,7 +20,7 @@
 
   <main class="riskspace-content">
     <div class="header">
-      <h1>RiskSpace AI</h1>
+      <h1>RiskSpace AI</h1>
       <p>Conversational Monte‑Carlo simulation</p>
       <div id="connectionStatus" class="connection-status"></div>
     </div>
@@ -40,11 +40,11 @@
   <!-- ╔════════════ Review & Edit sidebar ════════════╗ -->
   <div id="reviewSidebar" class="review-sidebar">
     <div class="review-header">
-      <strong>Review & Edit Graph JSON</strong>
+      <strong>Review & Edit Graph JSON</strong>
       <button class="close-btn" onclick="closeReview()">&times;</button>
     </div>
     <textarea id="reviewJson" spellcheck="false"></textarea>
-    <div class="review-actions"><button onclick="runEditedSimulation()">Run Simulation</button></div>
+    <div class="review-actions"><button onclick="runEditedSimulation()">Run Simulation</button></div>
   </div>
   <div id="reviewBackdrop" class="review-backdrop" onclick="closeReview()"></div>
   <!-- ╚═══════════════════════════════════════════════╝ -->
@@ -73,12 +73,33 @@ async function testConnection(){
 
 /***** CHAT helpers *****/
 function addMessage(content,type='ai',html=false,save=true){
+  console.log(`🔵 addMessage called with:`, {content, type, html, save});
+  console.log(`🔵 content type: ${typeof content}, value:`, content);
+
   const wrap=document.createElement('div'); wrap.className=`message ${type}`;
   const bub=document.createElement('div'); bub.className='message-bubble';
-  bub.innerHTML=html?content:content.replace(/\n/g,'<br>'); wrap.appendChild(bub);
-  chatContainer.appendChild(wrap); chatContainer.scrollTop=chatContainer.scrollHeight;
-  if(save) chatHistory.push({role:type==='user'?'user':'assistant',content});
+
+  try {
+    if (content === undefined || content === null) {
+      console.error(`🔴 CONTENT IS UNDEFINED/NULL!`);
+      content = "[ERROR: No content received]";
+    }
+
+    bub.innerHTML=html?content:content.replace(/\n/g,'<br>');
+    wrap.appendChild(bub);
+    chatContainer.appendChild(wrap);
+    chatContainer.scrollTop=chatContainer.scrollHeight;
+
+    if(save) chatHistory.push({role:type==='user'?'user':'assistant',content});
+  } catch (error) {
+    console.error(`🔴 ERROR in addMessage:`, error);
+    console.error(`🔴 content was:`, content);
+    bub.innerHTML = `[ERROR: ${error.message}]`;
+    wrap.appendChild(bub);
+    chatContainer.appendChild(wrap);
+  }
 }
+
 function addTyping(){ const t=document.createElement('div'); t.id='typing'; t.className='message ai'; t.innerHTML='<div class="typing-indicator"><span></span><span></span><span></span></div>'; chatContainer.appendChild(t); chatContainer.scrollTop=chatContainer.scrollHeight; }
 function rmTyping(){ const t=document.getElementById('typing'); if(t) t.remove(); }
 
@@ -88,17 +109,77 @@ function resetConversation(){ chatHistory=[]; chatContainer.innerHTML='';
   addMessage(g,'ai',false,false); chatHistory.push({role:'assistant',content:g}); isFirstLoad=false; userInput.value=''; userInput.focus(); }
 
 /***** SEND message *****/
-async function sendMessage(){ const msg=userInput.value.trim(); if(!msg) return;
-  addMessage(msg,'user'); userInput.value=''; addTyping();
-  try{ const r=await fetch(`${API_BASE}/chat`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({history:chatHistory})});
-       const d=await r.json(); rmTyping();
-       if(d.type==='json'){ const jsonStr=JSON.stringify(d.content,null,2); displayBlueprint(jsonStr); addMessage('Running simulation…','ai'); const sim=await runSimulation(d.content); await showResults(sim); }
-       else addMessage(d.content,'ai'); }
-  catch(e){ rmTyping(); addMessage('Error: '+e.message,'ai'); }
+async function sendMessage(){
+  const msg=userInput.value.trim();
+  if(!msg) return;
+
+  console.log(`🟢 SEND MESSAGE: "${msg}"`);
+  addMessage(msg,'user');
+  userInput.value='';
+  addTyping();
+
+  console.log(`🟢 CHAT HISTORY BEING SENT:`, chatHistory);
+
+  try{
+    const requestPayload = {history:chatHistory};
+    console.log(`🟢 REQUEST PAYLOAD:`, requestPayload);
+
+    const r=await fetch(`${API_BASE}/chat`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(requestPayload)
+    });
+
+    console.log(`🟡 RESPONSE STATUS:`, r.status);
+    console.log(`🟡 RESPONSE HEADERS:`, [...r.headers.entries()]);
+
+    const responseText = await r.text();
+    console.log(`🟡 RAW RESPONSE TEXT:`, responseText);
+
+    let d;
+    try {
+      d = JSON.parse(responseText);
+      console.log(`🟡 PARSED RESPONSE:`, d);
+    } catch (parseError) {
+      console.error(`🔴 JSON PARSE ERROR:`, parseError);
+      rmTyping();
+      addMessage(`Parse Error: ${parseError.message}\nRaw response: ${responseText}`,'ai');
+      return;
+    }
+
+    rmTyping();
+
+    console.log(`🟡 RESPONSE TYPE:`, d.type);
+    console.log(`🟡 RESPONSE CONTENT:`, d.content);
+
+    if(d.type==='json'){
+      console.log(`🟢 JSON RESPONSE DETECTED`);
+      const jsonStr=JSON.stringify(d.content,null,2);
+      displayBlueprint(jsonStr);
+      addMessage('Running simulation…','ai');
+      const sim=await runSimulation(d.content);
+      await showResults(sim);
+    }
+    else {
+      console.log(`🟢 TEXT RESPONSE DETECTED`);
+      console.log(`🟢 TEXT CONTENT TYPE:`, typeof d.content);
+      addMessage(d.content,'ai');
+    }
+  }
+  catch(e){
+    console.error(`🔴 FETCH ERROR:`, e);
+    rmTyping();
+    addMessage('Error: '+e.message,'ai');
+  }
 }
 
 /***** BACKEND calls *****/
-async function runSimulation(scen){ const r=await fetch(`${API_BASE}/graph_simulate`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(scen)}); if(!r.ok) throw new Error(await r.text()); return await r.json(); }
+async function runSimulation(scen){
+  console.log(`🟢 RUN SIMULATION CALLED WITH:`, scen);
+  const r=await fetch(`${API_BASE}/graph_simulate`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(scen)});
+  if(!r.ok) throw new Error(await r.text());
+  return await r.json();
+}
 
 /***** RESULTS visual *****/
 function drawHist(arr,id){ if(!arr?.length) return; const c=document.getElementById(id),ctx=c.getContext('2d'),bins=20,min=Math.min(...arr),max=Math.max(...arr),bw=(max-min)/bins,hist=new Array(bins).fill(0); arr.forEach(v=>hist[Math.min(Math.floor((v-min)/bw),bins-1)]++); const hMax=Math.max(...hist),W=c.width,H=c.height; ctx.clearRect(0,0,W,H); ctx.fillStyle='#3b82f6'; hist.forEach((ct,i)=>{const h=(ct/hMax)*(H-20); ctx.fillRect(i*W/bins,H-h-10,W/bins-1,h);}); }

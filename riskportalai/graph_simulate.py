@@ -52,7 +52,7 @@ def sample_distribution(dist: Dict[str, Any],
 
 # ---------- core driver ----------
 def simulate_graph(scenario: Dict[str, Any],
-                   iterations: int = 10_000,
+                   iterations: int = 10,
                    seed: int | None = None) -> Dict[str, Any]:
     rng = _get_rng(seed)
 
@@ -115,7 +115,8 @@ def simulate_graph(scenario: Dict[str, Any],
             "p5": float(np.percentile(valid, 5)),
             "p50": float(np.percentile(valid, 50)),
             "p95": float(np.percentile(valid, 95)),
-            "mean": float(valid.mean())
+            "mean": float(valid.mean()),
+            "samples": valid.tolist()
         }
 
     return {
