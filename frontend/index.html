@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RiskSpace AI – Graph Monte‑Carlo Prototype</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- ╔════════════ Navigation ════════════╗ -->
+  <header class="main-header">
+    <div class="nav-container">
+      <span class="nav-logo-text">Risk Portal</span>
+      <nav class="nav-menu">
+        <button class="nav-link" onclick="resetConversation()">New Simulation</button>
+      </nav>
+    </div>
+  </header>
+  <!-- ╚════════════════════════════════════╝ -->
+
+  <main class="riskspace-content">
+    <div class="header">
+      <h1>RiskSpace AI</h1>
+      <p>Conversational Monte‑Carlo simulation</p>
+      <div id="connectionStatus" class="connection-status"></div>
+    </div>
+
+    <!-- Chat scroll area -->
+    <div id="chatContainer" class="chat-container"></div>
+
+    <!-- Input box -->
+    <div class="input-area">
+      <div class="input-container">
+        <textarea id="userInput" class="input-field" rows="1" placeholder="Describe your situation…"></textarea>
+        <button id="sendButton" class="send-button" onclick="sendMessage()">➤</button>
+      </div>
+    </div>
+  </main>
+
+  <!-- ╔════════════ Review & Edit sidebar ════════════╗ -->
+  <div id="reviewSidebar" class="review-sidebar">
+    <div class="review-header">
+      <strong>Review & Edit Graph JSON</strong>
+      <button class="close-btn" onclick="closeReview()">&times;</button>
+    </div>
+    <textarea id="reviewJson" spellcheck="false"></textarea>
+    <div class="review-actions"><button onclick="runEditedSimulation()">Run Simulation</button></div>
+  </div>
+  <div id="reviewBackdrop" class="review-backdrop" onclick="closeReview()"></div>
+  <!-- ╚═══════════════════════════════════════════════╝ -->
+
+<script>
+/***** CONFIG: same‑origin *****/
+function getApiBase(){ return ""; }   // empty string ⇒ use current host:port
+const API_BASE = getApiBase();
+
+/***** DOM refs *****/
+const chatContainer = document.getElementById('chatContainer');
+const userInput     = document.getElementById('userInput');
+const sendButton    = document.getElementById('sendButton');
+const connectionStatus = document.getElementById('connectionStatus');
+
+let chatHistory = [];
+let isFirstLoad = true;
+
+/***** INITIALISE *****/
+document.addEventListener('DOMContentLoaded', ()=>{ testConnection(); resetConversation(); });
+async function testConnection(){
+  try{ const r=await fetch(`${API_BASE}/health`); if(!r.ok) throw new Error(r.status);
+        const d=await r.json(); connectionStatus.textContent=`Connected (v${d.version})`; connectionStatus.className='connection-status connected'; }
+  catch{ connectionStatus.textContent='Offline'; connectionStatus.className='connection-status disconnected'; }
+}
+
+/***** CHAT helpers *****/
+function addMessage(content,type='ai',html=false,save=true){
+  const wrap=document.createElement('div'); wrap.className=`message ${type}`;
+  const bub=document.createElement('div'); bub.className='message-bubble';
+  bub.innerHTML=html?content:content.replace(/\n/g,'<br>'); wrap.appendChild(bub);
+  chatContainer.appendChild(wrap); chatContainer.scrollTop=chatContainer.scrollHeight;
+  if(save) chatHistory.push({role:type==='user'?'user':'assistant',content});
+}
+function addTyping(){ const t=document.createElement('div'); t.id='typing'; t.className='message ai'; t.innerHTML='<div class="typing-indicator"><span></span><span></span><span></span></div>'; chatContainer.appendChild(t); chatContainer.scrollTop=chatContainer.scrollHeight; }
+function rmTyping(){ const t=document.getElementById('typing'); if(t) t.remove(); }
+
+/***** RESET *****/
+function resetConversation(){ chatHistory=[]; chatContainer.innerHTML='';
+  const g=isFirstLoad?`Welcome!\n\nMonte Carlo turns uncertainty into numbers.\nWhat scenario shall we model?`:'New scenario ‑ go ahead.';
+  addMessage(g,'ai',false,false); chatHistory.push({role:'assistant',content:g}); isFirstLoad=false; userInput.value=''; userInput.focus(); }
+
+/***** SEND message *****/
+async function sendMessage(){ const msg=userInput.value.trim(); if(!msg) return;
+  addMessage(msg,'user'); userInput.value=''; addTyping();
+  try{ const r=await fetch(`${API_BASE}/chat`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({history:chatHistory})});
+       const d=await r.json(); rmTyping();
+       if(d.type==='json'){ const jsonStr=JSON.stringify(d.content,null,2); displayBlueprint(jsonStr); addMessage('Running simulation…','ai'); const sim=await runSimulation(d.content); await showResults(sim); }
+       else addMessage(d.content,'ai'); }
+  catch(e){ rmTyping(); addMessage('Error: '+e.message,'ai'); }
+}
+
+/***** BACKEND calls *****/
+async function runSimulation(scen){ const r=await fetch(`${API_BASE}/graph_simulate`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(scen)}); if(!r.ok) throw new Error(await r.text()); return await r.json(); }
+
+/***** RESULTS visual *****/
+function drawHist(arr,id){ if(!arr?.length) return; const c=document.getElementById(id),ctx=c.getContext('2d'),bins=20,min=Math.min(...arr),max=Math.max(...arr),bw=(max-min)/bins,hist=new Array(bins).fill(0); arr.forEach(v=>hist[Math.min(Math.floor((v-min)/bw),bins-1)]++); const hMax=Math.max(...hist),W=c.width,H=c.height; ctx.clearRect(0,0,W,H); ctx.fillStyle='#3b82f6'; hist.forEach((ct,i)=>{const h=(ct/hMax)*(H-20); ctx.fillRect(i*W/bins,H-h-10,W/bins-1,h);}); }
+async function showResults(res){ const key=Object.keys(res.results).pop(),stats=res.results[key],id='c'+Date.now(); addMessage(`<h3>${key.replace(/_/g,' ')}</h3><canvas id="${id}" width="400" height="200"></canvas>`,'ai',true); setTimeout(()=>drawHist(stats.samples,id),10); }
+
+/***** REVIEW sidebar *****/
+function openReview(js){ document.getElementById('reviewJson').value=js; document.getElementById('reviewSidebar').classList.add('open'); document.getElementById('reviewBackdrop').classList.add('open'); }
+function closeReview(){ document.getElementById('reviewSidebar').classList.remove('open'); document.getElementById('reviewBackdrop').classList.remove('open'); }
+async function runEditedSimulation(){ try{ const txt=document.getElementById('reviewJson').value; const sc=JSON.parse(txt); closeReview(); addMessage('Simulation (edited)…','ai'); const res=await runSimulation(sc); await showResults(res);}catch(e){alert('Bad JSON: '+e.message);} }
+function displayBlueprint(js){ const btn=`<button onclick="openReview('${js.replace(/\n/g,'\\n').replace(/"/g,'&quot;')}')">Review & Edit</button>`; addMessage(`<details><summary>Blueprint</summary><pre>${escapeHtml(js)}</pre>${btn}</details>`,'ai',true,false); }
+function escapeHtml(s){return s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]));}
+</script>
+</body>
+</html>
