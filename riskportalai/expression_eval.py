@@ -1,7 +1,6 @@
 """
 expression_eval.py
-Day-3: Safe evaluation of arithmetic expressions used by expression nodes.
-Whitelist only the MVP math functions.
+Safe evaluation of arithmetic + comparison expressions for graph nodes.
 """
 
 from __future__ import annotations
@@ -12,7 +11,7 @@ from typing import Any, Dict
 import numpy as np
 
 # --------------------------------------------------------------------------- #
-# Allowed operators and helper functions
+# Allowed operators & helper functions
 # --------------------------------------------------------------------------- #
 _SAFE_BIN_OPS = {
     ast.Add: operator.add,
@@ -22,12 +21,18 @@ _SAFE_BIN_OPS = {
     ast.Pow: operator.pow,
     ast.Mod: operator.mod
 }
-
 _SAFE_UNARY_OPS = {
     ast.UAdd: operator.pos,
     ast.USub: operator.neg
 }
-
+_SAFE_COMP_OPS = {
+    ast.Gt: operator.gt,
+    ast.GtE: operator.ge,
+    ast.Lt: operator.lt,
+    ast.LtE: operator.le,
+    ast.Eq: operator.eq,
+    ast.NotEq: operator.ne
+}
 _SAFE_FUNCS = {
     "abs": abs,
     "min": np.minimum,
@@ -37,54 +42,74 @@ _SAFE_FUNCS = {
     "ceil": np.ceil,
     "log": np.log,
     "exp": np.exp,
-    # conditional helper: where(cond, a, b)
     "where": np.where
 }
 
 
 class ExpressionEvaluationError(Exception):
-    """Raised for any unsafe or invalid expression."""
+    """Raised for unsafe or invalid expression."""
 
 
 class SafeEvaluator:
-    """Evaluate arithmetic expressions using only whitelisted tokens."""
+    """
+    Evaluate an arithmetic / comparison expression using only whitelisted
+    operators and NumPy-friendly functions.
+    """
 
     def __init__(self, variables: Dict[str, Any]):
-        self.vars = variables  # name → NumPy array or scalar
+        self.vars = variables
 
-    # --------------- public API --------------- #
+    # ---------- public ---------- #
     def evaluate(self, expr: str) -> Any:
         try:
             tree = ast.parse(expr, mode="eval")
             return self._eval_node(tree.body)
         except ExpressionEvaluationError:
             raise
-        except Exception as exc:
+        except Exception as exc:  # pragma: no cover
             raise ExpressionEvaluationError(str(exc)) from exc
 
-    # --------------- private helpers ---------- #
+    # ---------- private recursive ---------- #
     def _eval_node(self, node: ast.AST) -> Any:
+        # literals
         if isinstance(node, ast.Constant):
             return node.value
 
+        # variables
         if isinstance(node, ast.Name):
             if node.id not in self.vars:
                 raise ExpressionEvaluationError(f"Unknown variable '{node.id}'")
             return self.vars[node.id]
 
+        # binary operators
         if isinstance(node, ast.BinOp):
-            op_type = type(node.op)
-            if op_type not in _SAFE_BIN_OPS:
+            op = _SAFE_BIN_OPS.get(type(node.op))
+            if op is None:
                 raise ExpressionEvaluationError("Operator not allowed")
-            return _SAFE_BIN_OPS[op_type](self._eval_node(node.left),
-                                          self._eval_node(node.right))
+            return op(self._eval_node(node.left),
+                      self._eval_node(node.right))
 
+        # unary operators
         if isinstance(node, ast.UnaryOp):
-            op_type = type(node.op)
-            if op_type not in _SAFE_UNARY_OPS:
-                raise ExpressionEvaluationError("Unary operator not allowed")
-            return _SAFE_UNARY_OPS[op_type](self._eval_node(node.operand))
+            op = _SAFE_UNARY_OPS.get(type(node.op))
+            if op is None:
+                raise ExpressionEvaluationError("Unary op not allowed")
+            return op(self._eval_node(node.operand))
 
+        # comparisons (x > y, a == b, a < b < c)
+        if isinstance(node, ast.Compare):
+            left_val = self._eval_node(node.left)
+            results = []
+            for op_node, comparator in zip(node.ops, node.comparators):
+                op_func = _SAFE_COMP_OPS.get(type(op_node))
+                if op_func is None:
+                    raise ExpressionEvaluationError("Comparison op not allowed")
+                right_val = self._eval_node(comparator)
+                results.append(op_func(left_val, right_val))
+                left_val = right_val  # support chained comparisons
+            return np.logical_and.reduce(results)
+
+        # function calls
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
             func_name = node.func.id
             if func_name not in _SAFE_FUNCS:

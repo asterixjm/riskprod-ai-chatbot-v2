@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "1.0",
+  "nodes": [
+    {
+      "id": "base_revenue",
+      "type": "parameter",
+      "distribution": {
+        "type": "constant",
+        "parameters": { "value": 1000 }
+      }
+    },
+    {
+      "id": "total_revenue",
+      "type": "result",
+      "formula": "base_revenue",
+      "is_result": true
+    }
+  ],
+  "edges": []
+}
