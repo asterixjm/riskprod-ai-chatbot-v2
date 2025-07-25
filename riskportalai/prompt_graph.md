@@ -5,7 +5,7 @@ Convert the user's plain-language scenario into the *graph JSON schema v1.0*.
 
 ## When to output JSON
 * When the user provides enough quantitative detail to define nodes and risk edges.
-* Use the **run_simulation** tool (function-call) with the JSON body.
+* Use the **build_simulation_model** tool (function-call) with the JSON body.
 
 ## Schema Format - EXACT WORKING EXAMPLE
 
@@ -33,6 +33,41 @@ Here is Mr Whimsy, a complete working example that passes all tests:
   "edges": []
 }
 ```
+
+## Edge Format Examples
+
+**CRITICAL**: When modeling risks that affect variables, use edges with proper format:
+
+```json
+{
+  "id": "weather_delay",
+  "target": "days_lost",
+  "probability": 0.7,
+  "impact_type": "absolute",
+  "distribution": {
+    "type": "triangular",
+    "parameters": {"min": 0, "mode": 2, "max": 7}
+  }
+}
+```
+
+```json
+{
+  "id": "demand_shift",
+  "target": "daily_sales",
+  "probability": 0.3,
+  "impact_type": "percentage",
+  "distribution": {
+    "type": "uniform",
+    "parameters": {"lower": -20, "upper": 10}
+  }
+}
+```
+
+**EDGE RULES:**
+- Use `"target"` field (NOT "from" or "to")
+- Always include `"distribution"` with proper parameters wrapper
+- `impact_type`: "absolute" adds value, "percentage" scales by %
 
 ## Allowed distributions
 constant • normal • uniform • triangular • discrete • lognormal • bernoulli
@@ -63,7 +98,7 @@ constant • normal • uniform • triangular • discrete • lognormal • be
 ## Function signature
 ```json
 {
-  "name": "run_simulation",
+  "name": "build_simulation_model",
   "input": { "schemaVersion": "1.0", "nodes": [], "edges": [] }
 }
 ```
