@@ -28,6 +28,57 @@ dotenv.load_dotenv()
 # ───────────────────────────────────────────────────────────────
 app = FastAPI(title="RiskPortal-AI", version="0.0.1")
 
+# ───────────────────────────────────────────────────────────────
+# Enhanced validation function
+# ───────────────────────────────────────────────────────────────
+def validate_scenario_enhanced(scenario: Dict[str, Any]) -> tuple[bool, List[str]]:
+    """Enhanced validation with specific edge targeting checks."""
+    errors = []
+
+    # Extract node info
+    nodes = {n["id"]: n for n in scenario.get("nodes", [])}
+    parameter_ids = {nid for nid, node in nodes.items() if node.get("type") == "parameter"}
+    expression_ids = {nid for nid, node in nodes.items() if node.get("type") in ("expression", "result")}
+
+    # Validate edges target parameters only
+    for edge in scenario.get("edges", []):
+        target = edge.get("target")
+        if not target:
+            errors.append("Edge missing 'target' field")
+            continue
+
+        if target not in nodes:
+            errors.append(f"Edge targets non-existent node '{target}'")
+            continue
+
+        # CRITICAL CHECK: Edge must target parameter only
+        if target in expression_ids:
+            node_type = nodes[target].get("type", "unknown")
+            errors.append(
+                f"Edge '{edge.get('id', 'unnamed')}' targets {node_type} node '{target}'. "
+                f"Edges can only target parameter nodes. "
+                f"Consider creating a base parameter and targeting that instead."
+            )
+            continue
+
+        if target not in parameter_ids:
+            errors.append(f"Edge targets '{target}' which is not a parameter node")
+
+    # Validate distributions have proper parameters wrapper
+    for node in scenario.get("nodes", []):
+        if node.get("type") == "parameter":
+            dist = node.get("distribution", {})
+            if "parameters" not in dist:
+                errors.append(f"Parameter '{node['id']}' distribution missing 'parameters' field")
+
+    # Validate edge distributions
+    for edge in scenario.get("edges", []):
+        dist = edge.get("distribution", {})
+        if "parameters" not in dist:
+            errors.append(f"Edge '{edge.get('id', 'unnamed')}' distribution missing 'parameters' field")
+
+    return len(errors) == 0, errors
+
 # ───────────────────  /health  ─────────────────────────────────
 @app.get("/health")
 async def health() -> Dict[str, str]:
@@ -77,7 +128,7 @@ async def chat_endpoint(payload: ChatPayload):
         claude_json = await call_claude([m.model_dump() for m in payload.history])
         print(f"🟡 CHAT ENDPOINT: Claude raw response: {claude_json}")
 
-        # FIX 1: Extract tool_use content correctly from Claude's response
+        # Extract tool_use content correctly from Claude's response
         content_items = claude_json.get("content", [])
         print(f"🟡 CHAT ENDPOINT: Content items: {content_items}")
 
@@ -93,16 +144,33 @@ async def chat_endpoint(payload: ChatPayload):
                 text_content = item
                 print(f"🟡 CHAT ENDPOINT: Found text: {text_content}")
 
-        # FIX 2: Return schema for frontend to simulate, don't simulate here
+        # Handle tool use with enhanced validation
         if tool_content:
             print(f"🟢 CHAT ENDPOINT: Tool use detected!")
             print(f"🟢 CHAT ENDPOINT: Tool name: {tool_content.get('name')}")
             print(f"🟢 CHAT ENDPOINT: Tool input: {tool_content.get('input')}")
 
-            # Return the schema for frontend to simulate
             scenario = tool_content["input"]
+
+            # Enhanced validation with specific error messages
+            try:
+                valid, errors = validate_scenario_enhanced(scenario)
+                if not valid:
+                    # Return detailed error message for Claude to fix
+                    error_msg = "I found issues with the model:\n" + "\n".join(f"- {err}" for err in errors[:3])
+                    error_msg += "\n\nLet me revise this with the correct structure."
+                    print(f"🔴 CHAT ENDPOINT: Validation failed: {error_msg}")
+                    response = {"type": "text", "content": error_msg}
+                    print(f"🟡 CHAT ENDPOINT: Returning validation error for Claude to fix")
+                    return response
+            except Exception as exc:
+                error_msg = f"Model validation failed: {str(exc)}. Let me try a different approach."
+                print(f"🔴 CHAT ENDPOINT: Validation exception: {exc}")
+                return {"type": "text", "content": error_msg}
+
+            # If validation passes, return schema for frontend
             response = {"type": "json", "content": scenario}
-            print(f"🟢 CHAT ENDPOINT: Returning schema for frontend simulation: {response}")
+            print(f"🟢 CHAT ENDPOINT: Validation passed, returning schema for frontend simulation")
             return response
 
         # If no tool use, return text response

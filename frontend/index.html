@@ -5,6 +5,139 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>RiskSpace AI – Graph Monte‑Carlo Prototype</title>
   <link rel="stylesheet" href="styles.css" />
+  <style>
+    .blueprint-container {
+      margin: 10px 0;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      background: #f9fafb;
+    }
+
+    .blueprint-json {
+      background: #1f2937;
+      color: #f3f4f6;
+      padding: 12px;
+      border-radius: 4px;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      overflow-x: auto;
+      margin: 8px 0;
+    }
+
+    .blueprint-actions {
+      padding: 12px;
+      display: flex;
+      gap: 8px;
+    }
+
+    .run-simulation-btn {
+      background: #3b82f6;
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: 500;
+    }
+
+    .run-simulation-btn:hover:not(:disabled) {
+      background: #2563eb;
+    }
+
+    .run-simulation-btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    /* Results & Insights Styling */
+    .results-container {
+      margin: 15px 0;
+      padding: 20px;
+      border: 1px solid #d1d5db;
+      border-radius: 12px;
+      background: #ffffff;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 12px;
+      margin: 16px 0;
+    }
+
+    .stat-card {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 12px;
+      text-align: center;
+    }
+
+    .stat-value {
+      font-size: 18px;
+      font-weight: bold;
+      color: #1e293b;
+      margin-bottom: 4px;
+    }
+
+    .stat-label {
+      font-size: 12px;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .chart-container {
+      margin: 20px 0;
+      text-align: center;
+    }
+
+    .chart-container canvas {
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      background: white;
+    }
+
+    .insight-container {
+      margin-top: 20px;
+      padding: 16px;
+      background: #f0f9ff;
+      border: 1px solid #0ea5e9;
+      border-radius: 8px;
+      border-left: 4px solid #0ea5e9;
+    }
+
+    .insight-container strong {
+      color: #0c4a6e;
+    }
+
+    .typing-indicator {
+      display: inline-block;
+      padding: 8px 12px;
+      background: #f3f4f6;
+      border-radius: 12px;
+      margin: 8px 0;
+    }
+
+    .typing-indicator span {
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #9ca3af;
+      margin: 0 1px;
+      animation: typing 1.4s infinite;
+    }
+
+    .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+    .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+
+    @keyframes typing {
+      0%, 60%, 100% { transform: translateY(0); }
+      30% { transform: translateY(-10px); }
+    }
+  </style>
 </head>
 <body>
   <!-- ╔════════════ Navigation ════════════╗ -->
@@ -108,9 +241,9 @@ function resetConversation(){ chatHistory=[]; chatContainer.innerHTML='';
   const g=isFirstLoad?`Welcome!\n\nMonte Carlo turns uncertainty into numbers.\nWhat scenario shall we model?`:'New scenario ‑ go ahead.';
   addMessage(g,'ai',false,false); chatHistory.push({role:'assistant',content:g}); isFirstLoad=false; userInput.value=''; userInput.focus(); }
 
-/***** SEND message *****/
+/***** SEND message with confirmation workflow *****/
 async function sendMessage(){
-  const msg=userInput.value.trim();
+  const msg = userInput.value.trim();
   if(!msg) return;
 
   console.log(`🟢 SEND MESSAGE: "${msg}"`);
@@ -124,7 +257,7 @@ async function sendMessage(){
     const requestPayload = {history:chatHistory};
     console.log(`🟢 REQUEST PAYLOAD:`, requestPayload);
 
-    const r=await fetch(`${API_BASE}/chat`,{
+    const r = await fetch(`${API_BASE}/chat`,{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify(requestPayload)
@@ -152,13 +285,13 @@ async function sendMessage(){
     console.log(`🟡 RESPONSE TYPE:`, d.type);
     console.log(`🟡 RESPONSE CONTENT:`, d.content);
 
-    if(d.type==='json'){
-      console.log(`🟢 JSON RESPONSE DETECTED`);
-      const jsonStr=JSON.stringify(d.content,null,2);
-      displayBlueprint(jsonStr);
-      addMessage('Running simulation…','ai');
-      const sim=await runSimulation(d.content);
-      await showResults(sim);
+    if(d.type === 'json'){
+      console.log(`🟢 JSON RESPONSE DETECTED - SHOWING BLUEPRINT WITH CONFIRMATION`);
+      const jsonStr = JSON.stringify(d.content, null, 2);
+
+      // Show blueprint with confirmation button instead of auto-running
+      displayBlueprintWithConfirmation(jsonStr, d.content);
+      addMessage('Please review the model above and click "Run Simulation" when ready.','ai');
     }
     else {
       console.log(`🟢 TEXT RESPONSE DETECTED`);
@@ -181,15 +314,231 @@ async function runSimulation(scen){
   return await r.json();
 }
 
-/***** RESULTS visual *****/
-function drawHist(arr,id){ if(!arr?.length) return; const c=document.getElementById(id),ctx=c.getContext('2d'),bins=20,min=Math.min(...arr),max=Math.max(...arr),bw=(max-min)/bins,hist=new Array(bins).fill(0); arr.forEach(v=>hist[Math.min(Math.floor((v-min)/bw),bins-1)]++); const hMax=Math.max(...hist),W=c.width,H=c.height; ctx.clearRect(0,0,W,H); ctx.fillStyle='#3b82f6'; hist.forEach((ct,i)=>{const h=(ct/hMax)*(H-20); ctx.fillRect(i*W/bins,H-h-10,W/bins-1,h);}); }
-async function showResults(res){ const key=Object.keys(res.results).pop(),stats=res.results[key],id='c'+Date.now(); addMessage(`<h3>${key.replace(/_/g,' ')}</h3><canvas id="${id}" width="400" height="200"></canvas>`,'ai',true); setTimeout(()=>drawHist(stats.samples,id),10); }
+/***** Enhanced results with stats and insights *****/
+function drawHistogram(samples, canvasId) {
+  if (!samples?.length) return;
+
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+
+  const ctx = canvas.getContext('2d');
+  const bins = 20;
+  const min = Math.min(...samples);
+  const max = Math.max(...samples);
+  const binWidth = (max - min) / bins;
+  const histogram = new Array(bins).fill(0);
+
+  samples.forEach(value => {
+    const binIndex = Math.min(Math.floor((value - min) / binWidth), bins - 1);
+    histogram[binIndex]++;
+  });
+
+  const maxCount = Math.max(...histogram);
+  const width = canvas.width;
+  const height = canvas.height;
+
+  ctx.clearRect(0, 0, width, height);
+  ctx.fillStyle = '#3b82f6';
+
+  histogram.forEach((count, i) => {
+    const barHeight = (count / maxCount) * (height - 40);
+    const x = (i * width) / bins;
+    const barWidth = width / bins - 2;
+    ctx.fillRect(x, height - barHeight - 20, barWidth, barHeight);
+  });
+}
+
+async function generateInsight(results, scenario, userGoal) {
+  console.log('🟢 GENERATING INSIGHT');
+
+  // Get the main result statistics
+  const resultNames = Object.keys(results.results);
+  const mainResult = resultNames[resultNames.length - 1];
+  const stats = results.results[mainResult];
+
+  // Create insight prompt
+  const insightPrompt = `Based on this Monte Carlo simulation:
+
+User Goal: ${userGoal}
+Result Variable: ${mainResult.replace(/_/g, ' ')}
+Statistics:
+- P5 (5th percentile): ${stats.p5?.toLocaleString() || 'N/A'}
+- Median (P50): ${stats.p50?.toLocaleString() || 'N/A'}
+- P95 (95th percentile): ${stats.p95?.toLocaleString() || 'N/A'}
+- Mean: ${stats.mean?.toLocaleString() || 'N/A'}
+- Iterations: ${results.metadata?.iterations?.toLocaleString() || 'N/A'}
+
+Please provide a brief, practical insight in one paragraph that explains what these results mean for the user's decision. Focus on the range of outcomes, key risks, and actionable implications.`;
+
+  try {
+    const insightHistory = [
+      {role: 'user', content: insightPrompt}
+    ];
+
+    const response = await fetch(`${API_BASE}/chat`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({history: insightHistory})
+    });
+
+    const data = await response.json();
+    return data.content || 'Unable to generate insight at this time.';
+
+  } catch (error) {
+    console.error('🔴 INSIGHT GENERATION ERROR:', error);
+    return 'Unable to generate insight due to an error.';
+  }
+}
+
+async function showResultsAndInsight(results, scenario) {
+  console.log('🟢 SHOWING RESULTS WITH INSIGHTS', results);
+
+  const resultNames = Object.keys(results.results);
+  const mainResult = resultNames[resultNames.length - 1];
+  const stats = results.results[mainResult];
+  const chartId = `chart-${Date.now()}`;
+  const insightId = `insight-${chartId}`;
+
+  // Create results HTML with stats grid
+  const html = `
+    <div class="results-container">
+      <h3>Monte Carlo Results: ${mainResult.replace(/_/g, ' ')}</h3>
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-value">${stats.p5?.toLocaleString() || 'N/A'}</div>
+          <div class="stat-label">P5 (5th percentile)</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">${stats.p50?.toLocaleString() || 'N/A'}</div>
+          <div class="stat-label">Median (P50)</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">${stats.p95?.toLocaleString() || 'N/A'}</div>
+          <div class="stat-label">P95 (95th percentile)</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">${results.metadata?.iterations?.toLocaleString() || 'N/A'}</div>
+          <div class="stat-label">Iterations</div>
+        </div>
+      </div>
+      <div class="chart-container">
+        <canvas id="${chartId}" width="400" height="200"></canvas>
+      </div>
+      <div id="${insightId}"></div>
+    </div>
+  `;
+
+  addMessage(html, 'ai', true, false);
+
+  // Draw histogram
+  setTimeout(() => drawHistogram(stats.samples, chartId), 100);
+
+  // Generate and display insight
+  addTyping();
+
+  // Get user's original goal from chat history
+  const userGoal = chatHistory.find(m => m.role === 'user')?.content || 'User scenario analysis';
+
+  try {
+    const insight = await generateInsight(results, scenario, userGoal);
+    rmTyping();
+
+    const insightDiv = document.getElementById(insightId);
+    if (insightDiv) {
+      insightDiv.innerHTML = `
+        <div class="insight-container">
+          <strong>Insight:</strong> ${insight}
+        </div>
+      `;
+    }
+  } catch (error) {
+    rmTyping();
+    console.error('🔴 INSIGHT ERROR:', error);
+    const insightDiv = document.getElementById(insightId);
+    if (insightDiv) {
+      insightDiv.innerHTML = `
+        <div class="insight-container">
+          <strong>Insight:</strong> Results analysis completed. Review the statistics above to understand the range of possible outcomes.
+        </div>
+      `;
+    }
+  }
+}
+
+/***** NEW: Blueprint with confirmation *****/
+function displayBlueprintWithConfirmation(jsonStr, scenarioData) {
+  const blueprintId = 'blueprint-' + Date.now();
+  const buttonId = 'run-btn-' + Date.now();
+
+  const blueprintHtml = `
+    <div class="blueprint-container" id="${blueprintId}">
+      <details open>
+        <summary><strong>Model Blueprint</strong></summary>
+        <pre class="blueprint-json">${escapeHtml(jsonStr)}</pre>
+        <div class="blueprint-actions">
+          <button id="${buttonId}" class="run-simulation-btn" onclick="confirmAndRunSimulation('${blueprintId}', this)">
+            ▶ Run Simulation
+          </button>
+          <button onclick="openReview('${jsonStr.replace(/\n/g,'\\n').replace(/"/g,'&quot;')}')">
+            ✏ Review & Edit
+          </button>
+        </div>
+      </details>
+    </div>
+  `;
+
+  addMessage(blueprintHtml, 'ai', true, false);
+
+  // Store scenario data for later use
+  window.pendingScenario = scenarioData;
+}
+
+async function confirmAndRunSimulation(blueprintId, buttonElement) {
+  try {
+    // Disable button and show loading
+    buttonElement.disabled = true;
+    buttonElement.textContent = '⏳ Running...';
+
+    // Get the scenario data
+    const scenario = window.pendingScenario;
+    if (!scenario) {
+      throw new Error('Scenario data not found');
+    }
+
+    addMessage('Running simulation...','ai');
+
+    const results = await runSimulation(scenario);
+    await showResultsAndInsight(results, scenario);
+
+    // Update button to show completion
+    buttonElement.textContent = '✅ Completed';
+    buttonElement.style.backgroundColor = '#22c55e';
+
+  } catch (error) {
+    console.error('🔴 SIMULATION ERROR:', error);
+    addMessage('Simulation failed: ' + error.message, 'ai');
+
+    // Reset button
+    buttonElement.disabled = false;
+    buttonElement.textContent = '▶ Run Simulation';
+  }
+}
 
 /***** REVIEW sidebar *****/
 function openReview(js){ document.getElementById('reviewJson').value=js; document.getElementById('reviewSidebar').classList.add('open'); document.getElementById('reviewBackdrop').classList.add('open'); }
 function closeReview(){ document.getElementById('reviewSidebar').classList.remove('open'); document.getElementById('reviewBackdrop').classList.remove('open'); }
-async function runEditedSimulation(){ try{ const txt=document.getElementById('reviewJson').value; const sc=JSON.parse(txt); closeReview(); addMessage('Simulation (edited)…','ai'); const res=await runSimulation(sc); await showResults(res);}catch(e){alert('Bad JSON: '+e.message);} }
-function displayBlueprint(js){ const btn=`<button onclick="openReview('${js.replace(/\n/g,'\\n').replace(/"/g,'&quot;')}')">Review & Edit</button>`; addMessage(`<details><summary>Blueprint</summary><pre>${escapeHtml(js)}</pre>${btn}</details>`,'ai',true,false); }
+async function runEditedSimulation(){
+  try{
+    const txt=document.getElementById('reviewJson').value;
+    const sc=JSON.parse(txt);
+    closeReview();
+    addMessage('Running edited simulation…','ai');
+    const res=await runSimulation(sc);
+    await showResultsAndInsight(res, sc);
+  }catch(e){
+    alert('Bad JSON: '+e.message);
+  }
+}
 function escapeHtml(s){return s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]));}
 </script>
 </body>

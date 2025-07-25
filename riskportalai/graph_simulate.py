@@ -52,7 +52,7 @@ def sample_distribution(dist: Dict[str, Any],
 
 # ---------- core driver ----------
 def simulate_graph(scenario: Dict[str, Any],
-                   iterations: int = 10,
+                   iterations: int = 10000,
                    seed: int | None = None) -> Dict[str, Any]:
     rng = _get_rng(seed)
 

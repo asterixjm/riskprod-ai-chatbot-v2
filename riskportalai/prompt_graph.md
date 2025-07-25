@@ -7,6 +7,25 @@ Convert the user's plain-language scenario into the *graph JSON schema v1.0*.
 * When the user provides enough quantitative detail to define nodes and risk edges.
 * Use the **build_simulation_model** tool (function-call) with the JSON body.
 
+## CRITICAL RULE: EDGES MUST TARGET PARAMETERS ONLY
+**NEVER target expression or result nodes with edges. ALL edge targets MUST be parameter nodes.**
+
+❌ WRONG:
+```json
+{
+  "target": "total_cost",  // Expression node - FORBIDDEN
+  "probability": 0.05
+}
+```
+
+✅ CORRECT:
+```json
+{
+  "target": "base_cost",   // Parameter node - ALLOWED
+  "probability": 0.05
+}
+```
+
 ## Schema Format - EXACT WORKING EXAMPLE
 
 Here is Mr Whimsy, a complete working example that passes all tests:
@@ -36,12 +55,12 @@ Here is Mr Whimsy, a complete working example that passes all tests:
 
 ## Edge Format Examples
 
-**CRITICAL**: When modeling risks that affect variables, use edges with proper format:
+**CRITICAL**: When modeling risks that affect variables, ALWAYS target parameter nodes:
 
 ```json
 {
   "id": "weather_delay",
-  "target": "days_lost",
+  "target": "base_days",           // ← PARAMETER node only
   "probability": 0.7,
   "impact_type": "absolute",
   "distribution": {
@@ -54,7 +73,7 @@ Here is Mr Whimsy, a complete working example that passes all tests:
 ```json
 {
   "id": "demand_shift",
-  "target": "daily_sales",
+  "target": "daily_sales",         // ← PARAMETER node only
   "probability": 0.3,
   "impact_type": "percentage",
   "distribution": {
@@ -64,8 +83,15 @@ Here is Mr Whimsy, a complete working example that passes all tests:
 }
 ```
 
+**MODELING STRATEGY FOR COSTS/TOTALS:**
+If user mentions risk affecting "total cost":
+1. Create base parameter nodes (e.g., "base_cost")
+2. Target the base parameter with edges
+3. Calculate total in expression: "total_cost = base_cost + other_costs"
+
 **EDGE RULES:**
 - Use `"target"` field (NOT "from" or "to")
+- Target field MUST reference a parameter node ID (type: "parameter")  
 - Always include `"distribution"` with proper parameters wrapper
 - `impact_type`: "absolute" adds value, "percentage" scales by %
 
@@ -89,9 +115,10 @@ constant • normal • uniform • triangular • discrete • lognormal • be
 ## Schema Structure
 * **nodes[]** – every quantity.
   * parameter ⇒ needs distribution
-  * expression ⇒ needs formula
+  * expression ⇒ needs formula  
   * result    ⇒ expression + `"is_result": true`
 * **edges[]** – risks/influences.
+  * `target` MUST be parameter node ID
   * `impact_type` = absolute | percentage
   * default `priority` : absolute=0, percentage=10
 
